@@ -1,7 +1,7 @@
 // Service worker (classic). Thin router: receives a download job from the content button or the
-// popup, ensures the offscreen document exists AND its listener is live (readiness handshake),
-// forwards the job, then saves the returned blob via chrome.downloads. All heavy lifting (fetch +
-// remux) happens in the offscreen document.
+// popup, ensures the offscreen document is alive + ready, sends the job, and awaits the result via
+// a DECOUPLED tvd-result message (the offscreen's async sendResponse channel proved unreliable —
+// it resolved to undefined). Offscreen progress is relayed here via tvd-log for easy inspection.
 
 const OFFSCREEN_URL = 'offscreen.html';
 
@@ -11,7 +11,7 @@ async function hasOffscreen() {
   return contexts.length > 0;
 }
 
-let creating = null; // de-dupe concurrent createDocument calls
+let creating = null;
 async function ensureOffscreen() {
   if (await hasOffscreen()) return;
   if (!creating) {
@@ -20,25 +20,22 @@ async function ensureOffscreen() {
       reasons: ['BLOBS'],
       justification: 'Remux HLS video+audio fMP4 into one MP4 and create a downloadable blob.',
     }).catch((e) => {
-      // A concurrent create may have won the race; tolerate "single offscreen document" errors.
       if (!/single offscreen|already/i.test(String(e?.message))) throw e;
     }).finally(() => { creating = null; });
   }
   await creating;
 }
 
-// The offscreen module registers its listener asynchronously after the document loads, so the SW
-// must not send the job until a ping round-trips — otherwise the first message is silently dropped.
 async function waitForOffscreenReady(timeoutMs = 5000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
       const r = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'tvd-ping' });
       if (r?.ready) return;
-    } catch (_) { /* no receiver yet — keep polling */ }
+    } catch (_) { /* no receiver yet */ }
     await new Promise((res) => setTimeout(res, 120));
   }
-  throw new Error('offscreen document did not become ready (open its console via chrome://extensions → Inspect views)');
+  throw new Error('offscreen document did not become ready');
 }
 
 async function getCapMB() {
@@ -46,15 +43,34 @@ async function getCapMB() {
   return capMB;
 }
 
+// jobId -> { resolve } for decoupled results coming back as tvd-result messages.
+const pending = new Map();
+
+function awaitResult(jobId, timeoutMs = 90000) {
+  return new Promise((resolve, reject) => {
+    pending.set(jobId, { resolve });
+    setTimeout(() => {
+      if (pending.has(jobId)) { pending.delete(jobId); reject(new Error('offscreen timed out (no result in 90s)')); }
+    }, timeoutMs);
+  });
+}
+
 async function handleDownload(job) {
   await ensureOffscreen();
   await waitForOffscreenReady();
   const capMB = job.capMB ?? (await getCapMB());
+  const jobId = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now() + Math.random());
 
-  const res = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'tvd-run', ...job, capMB });
-  if (res === undefined) {
-    throw new Error('no response from offscreen (it may have failed to load — check the offscreen console)');
-  }
+  const resultPromise = awaitResult(jobId);
+  // Forward ONLY the fields the offscreen needs. Do NOT spread `job` — it carries
+  // `type: 'tvd-download'`, which would clobber `type: 'tvd-run'` and the offscreen would ignore it.
+  const ack = await chrome.runtime.sendMessage({
+    target: 'offscreen', type: 'tvd-run', jobId,
+    statusId: job.statusId, tweetUrl: job.tweetUrl, masterUrl: job.masterUrl, capMB,
+  });
+  if (!ack?.accepted) console.warn('[TVD] offscreen did not ack the job (ack:', ack, ')');
+
+  const res = await resultPromise; // delivered via tvd-result
   if (!res.ok) throw new Error(res.error || 'remux failed');
 
   const filename = res.filename.replace(/[\/\\:*?"<>|]/g, '_');
@@ -67,6 +83,12 @@ async function handleDownload(job) {
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'tvd-log') { console.log('[TVD][offscreen]', msg.text); return; }
+  if (msg?.type === 'tvd-result') {
+    const p = pending.get(msg.jobId);
+    if (p) { pending.delete(msg.jobId); p.resolve(msg); }
+    return;
+  }
   if (msg?.type === 'tvd-download') {
     handleDownload(msg)
       .then(sendResponse)

@@ -8,7 +8,7 @@ import { parseMedia, trimMedia } from './parse-hls.js';
 export const MB = 1024 * 1024;
 
 async function fetchText(url) {
-  const r = await fetch(url);
+  const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!r.ok) throw new Error(`GET ${url} -> ${r.status}`);
   return r.text();
 }
@@ -29,7 +29,7 @@ export async function renditionSize(media, { concurrency = 8 } = {}) {
   let missing = 0;
   for (let i = 0; i < unique.length; i += concurrency) {
     const sizes = await Promise.all(unique.slice(i, i + concurrency).map(async (u) => {
-      const r = await fetch(u, { method: 'HEAD' });
+      const r = await fetch(u, { method: 'HEAD', signal: AbortSignal.timeout(15000) });
       const len = r.headers.get('content-length');
       return len ? Number(len) : null;
     }));

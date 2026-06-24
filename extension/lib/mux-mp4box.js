@@ -8,11 +8,20 @@
 // Read mp4box lazily at call time (it's loaded as a classic <script> in offscreen.html). Doing
 // this lazily — instead of at module top level — means this module always evaluates, so the
 // offscreen listener registers even if mp4box somehow isn't ready, and the error is reported clearly.
+// Loaded as a classic browser script, mp4box exposes `createFile` ON the MP4Box object, but
+// `DataStream`, `Log`, `BoxParser`, etc. are SEPARATE globals (not under MP4Box — that's only the
+// case in the Node/CommonJS build). So grab DataStream/Log from globalThis, not from MP4Box.
 function getMP4Box() {
   const M = globalThis.MP4Box;
   if (!M) throw new Error('mp4box not loaded — offscreen.html must load vendor/mp4box.all.js before offscreen.js');
-  M.Log?.setLogLevel?.(M.Log.error);
+  globalThis.Log?.setLogLevel?.(globalThis.Log.error);
   return M;
+}
+
+function getDataStream() {
+  const DS = globalThis.DataStream;
+  if (!DS) throw new Error('mp4box DataStream global missing (vendor/mp4box.all.js did not load fully)');
+  return DS;
 }
 
 /** Parse one single-track fMP4 (Uint8Array) -> { entry, timescale, width, height, samples[] }. */
@@ -52,8 +61,8 @@ function loadTrack(bytes, label) {
 /** Re-serialize a parsed avcC into a raw AVCDecoderConfigurationRecord ArrayBuffer (no box header). */
 function avcConfigBytes(entry) {
   if (!entry.avcC) throw new Error('video sample entry has no avcC');
-  const MP4Box = getMP4Box();
-  const ds = new MP4Box.DataStream(undefined, 0, MP4Box.DataStream.BIG_ENDIAN);
+  const DataStream = getDataStream();
+  const ds = new DataStream(undefined, 0, DataStream.BIG_ENDIAN);
   entry.avcC.write(ds);
   return ds.buffer.slice(8);
 }

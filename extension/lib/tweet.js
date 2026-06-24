@@ -22,7 +22,7 @@ export function extractStatusId(urlOrId) {
 export async function resolveTweetVideo(statusId) {
   const token = tweetToken(statusId);
   const url = `https://cdn.syndication.twimg.com/tweet-result?id=${statusId}&lang=en&token=${token}`;
-  const r = await fetch(url, { headers: { accept: 'application/json' } });
+  const r = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
   if (!r.ok) throw new Error(`syndication ${r.status} (tweet may be private, age-gated, or deleted)`);
   const data = await r.json();
 

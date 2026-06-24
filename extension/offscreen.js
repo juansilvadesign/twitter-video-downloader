@@ -1,29 +1,42 @@
 // Offscreen document — the download workhorse. Runs the validated spike pipeline in a context that
-// has a full DOM (window, URL.createObjectURL) and host-permission fetch (no CORS). The service
-// worker stays thin: it routes jobs here and saves the resulting blob via chrome.downloads.
+// has a full DOM (window, URL.createObjectURL) and host-permission fetch (no CORS).
 //
-// The message listener is registered SYNCHRONOUSLY and the pipeline is pulled in via dynamic
-// import() inside run(), so a module-load problem can't silently prevent the listener from
-// registering — any failure is caught and reported back with a real message.
+// The message listener registers synchronously; the pipeline is pulled in via dynamic import()
+// inside run() so a module-load problem can't silently prevent the listener from registering.
+// Results are delivered back via a DECOUPLED `tvd-result` message (correlated by jobId) rather
+// than the async sendResponse channel, which is unreliable for long offscreen work (it was
+// resolving to undefined). All progress is also relayed to the service-worker console.
 
 console.log('[TVD] offscreen loaded');
+
+function relay(...args) {
+  console.log('[TVD]', ...args);
+  try {
+    chrome.runtime.sendMessage({
+      type: 'tvd-log',
+      text: args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '),
+    });
+  } catch (_) { /* SW momentarily unavailable */ }
+}
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target !== 'offscreen') return;
   if (msg.type === 'tvd-ping') { sendResponse({ ready: true }); return; }
   if (msg.type === 'tvd-run') {
+    relay('received tvd-run', msg.jobId);
+    sendResponse({ accepted: true }); // ack now; the real result comes via tvd-result
     run(msg)
-      .then(sendResponse)
+      .then((r) => chrome.runtime.sendMessage({ type: 'tvd-result', jobId: msg.jobId, ...r }))
       .catch((e) => {
-        console.error('[TVD] run failed:', e);
-        sendResponse({ ok: false, error: String(e?.stack || e?.message || e) });
+        relay('run FAILED:', String(e?.stack || e?.message || e));
+        chrome.runtime.sendMessage({ type: 'tvd-result', jobId: msg.jobId, ok: false, error: String(e?.message || e) });
       });
-    return true; // async response
+    return; // not using the async sendResponse channel
   }
 });
 
 const getText = async (u) => {
-  const r = await fetch(u);
+  const r = await fetch(u, { signal: AbortSignal.timeout(20000) });
   if (!r.ok) throw new Error(`GET ${u} -> ${r.status}`);
   return r.text();
 };
@@ -42,7 +55,7 @@ function pickAudio(audioGroups, videoVariants) {
 }
 
 async function run(job) {
-  console.log('[TVD] run', job);
+  relay('run start', JSON.stringify({ statusId: job.statusId, tweetUrl: job.tweetUrl, masterUrl: job.masterUrl, capMB: job.capMB }));
   const [{ parseMaster, parseMedia }, { renditionSize, selectVariant, MB },
     { fetchRendition }, { muxMp4box }, { resolveTweetVideo, extractStatusId }] = await Promise.all([
     import('./lib/parse-hls.js'),
@@ -51,6 +64,7 @@ async function run(job) {
     import('./lib/mux-mp4box.js'),
     import('./lib/tweet.js'),
   ]);
+  relay('modules loaded');
 
   const capBytes = (job.capMB || 10) * MB;
   let master = job.masterUrl;
@@ -58,12 +72,14 @@ async function run(job) {
   if (!master) {
     const id = job.statusId || extractStatusId(job.tweetUrl);
     if (!id) throw new Error('no tweet ID or master URL provided');
+    relay('resolving tweet', id);
     ({ masterUrl: master, title } = await resolveTweetVideo(id));
   }
-  console.log('[TVD] master:', master);
+  relay('master', master);
 
   const { videoVariants, audioGroups } = parseMaster(await getText(master), master);
   if (!videoVariants.length) throw new Error('no video variants in the master playlist');
+  relay('variants', videoVariants.length, 'audio groups', Object.keys(audioGroups).join(',') || '(none)');
 
   const audioRend = pickAudio(audioGroups, videoVariants);
   let audioMedia = null, audioBytes = 0;
@@ -74,17 +90,17 @@ async function run(job) {
 
   const { chosen } = await selectVariant({ videoVariants, audioBytes, capBytes });
   if (!chosen) throw new Error(`No variant fits under ${job.capMB} MB — even the lowest exceeds the cap (would need transcoding).`);
-  console.log('[TVD] chosen', chosen.resolution, (chosen.total / MB).toFixed(2), 'MB');
+  relay('chosen', chosen.resolution, (chosen.total / MB).toFixed(2) + 'MB');
 
   const videoData = await fetchRendition(chosen.media);
   const audioData = audioMedia ? await fetchRendition(audioMedia) : null;
-  console.log('[TVD] fetched, remuxing…');
+  relay('fetched, remuxing…');
 
   const mp4 = await muxMp4box(videoData, audioData);
   const blob = new Blob([mp4], { type: 'video/mp4' });
   const blobUrl = URL.createObjectURL(blob);
   setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-  console.log('[TVD] done', (blob.size / MB).toFixed(2), 'MB');
+  relay('done', (blob.size / MB).toFixed(2) + 'MB');
 
   return { ok: true, blobUrl, filename: `${title}-${chosen.height}p.mp4`, resolution: chosen.resolution, bytes: blob.size };
 }

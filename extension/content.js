@@ -1,12 +1,14 @@
 // Content script: inject a download button into each video tweet's action bar (right of Share).
-// X is a recycling React SPA, so we observe DOM mutations (debounced) and re-scan, using a sentinel
-// attribute to avoid duplicate injection. The tweet's status ID is read from the article permalink,
-// so the button is unambiguously bound to ITS tweet even when several videos share the page.
 //
-// NOTE: the DOM selectors below are heuristic and are the part most likely to drift when X changes
-// its markup. Keep them in one place for easy updates.
+// Uses EVENT DELEGATION — a single capture-phase click listener on `document` — instead of
+// per-button listeners. On X (a recycling React SPA) a per-button listener dies whenever React
+// re-renders/replaces the action bar subtree, and X's own click handling can swallow the event.
+// A delegated capture-phase listener survives re-renders and fires before X's handlers.
+//
+// NOTE: the DOM selectors here are heuristic and are the part most likely to drift when X changes
+// its markup. Kept together for easy updating.
 
-const SENTINEL = 'data-tvd-injected';
+console.log('[TVD] content script loaded on', location.href);
 
 const DL_SVG =
   '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
@@ -26,56 +28,78 @@ function hasVideo(article) {
   );
 }
 
-async function onClick(btn, statusId) {
+function toast(text, kind = '') {
+  let el = document.getElementById('tvd-toast');
+  if (!el) { el = document.createElement('div'); el.id = 'tvd-toast'; document.body.appendChild(el); }
+  el.textContent = text;
+  el.className = 'tvd-toast' + (kind ? ' tvd-toast-' + kind : '') + ' tvd-show';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('tvd-show'), 4500);
+}
+
+async function runDownload(btn) {
   if (btn.dataset.busy) return;
+  const statusId = btn.dataset.tvdStatus;
+  console.log('[TVD] button clicked — status', statusId);
   btn.dataset.busy = '1';
   btn.classList.add('tvd-loading');
-  const reset = (cls, ms) => setTimeout(() => { btn.classList.remove(cls); btn.title = 'Download video (size-capped)'; }, ms);
+  toast('Downloading video…');
   try {
     const res = await chrome.runtime.sendMessage({ type: 'tvd-download', statusId });
-    if (!res?.ok) throw new Error(res?.error || 'download failed');
+    console.log('[TVD] background response:', res);
+    if (!res?.ok) throw new Error(res?.error || 'no response from background (is the service worker alive?)');
     btn.classList.add('tvd-done');
-    btn.title = `Saved ${res.resolution} (${(res.bytes / 1048576).toFixed(1)} MB)`;
-    reset('tvd-done', 2500);
+    toast(`Saved ${res.resolution} · ${(res.bytes / 1048576).toFixed(1)} MB`, 'ok');
+    setTimeout(() => btn.classList.remove('tvd-done'), 2500);
   } catch (e) {
+    console.error('[TVD] download error:', e);
     btn.classList.add('tvd-error');
-    btn.title = 'Download failed: ' + (e?.message || e);
-    reset('tvd-error', 4000);
+    toast('Download failed: ' + (e?.message || e), 'err');
+    setTimeout(() => btn.classList.remove('tvd-error'), 4500);
   } finally {
     btn.dataset.busy = '';
     btn.classList.remove('tvd-loading');
   }
 }
 
+// One delegated, capture-phase handler — robust to React re-renders and to X's own click handlers.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest?.('.tvd-btn');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  runDownload(btn);
+}, true);
+
 function inject(actionBar) {
-  if (actionBar.hasAttribute(SENTINEL)) return;
+  if (actionBar.querySelector('.tvd-btn')) return; // self-healing: re-inject if React stripped ours
   const article = actionBar.closest('article');
   if (!article || !hasVideo(article)) return;
   const statusId = statusIdFromArticle(article);
   if (!statusId) return;
 
-  actionBar.setAttribute(SENTINEL, '1');
   const wrap = document.createElement('div');
   wrap.className = 'tvd-btn-wrap';
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'tvd-btn';
+  btn.dataset.tvdStatus = statusId; // delegated handler reads the ID from here
   btn.title = 'Download video (size-capped)';
   btn.setAttribute('aria-label', 'Download video (size-capped)');
   btn.innerHTML = DL_SVG;
-  btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onClick(btn, statusId); });
   wrap.appendChild(btn);
   actionBar.appendChild(wrap);
 }
 
 function scan(root = document) {
-  // A tweet action bar is a role="group" inside an <article> holding several action buttons.
+  let n = 0;
   for (const bar of root.querySelectorAll('article [role="group"]')) {
-    if (bar.querySelectorAll('button, a').length >= 2) inject(bar);
+    if (bar.querySelectorAll('button, a').length >= 2) { inject(bar); n++; }
   }
+  return n;
 }
 
 const debounce = (fn, ms) => { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; };
-const rescan = debounce(scan, 250);
-new MutationObserver(rescan).observe(document.documentElement, { childList: true, subtree: true });
+new MutationObserver(debounce(scan, 300)).observe(document.documentElement, { childList: true, subtree: true });
 scan();
+console.log('[TVD] content script initialized (delegated click + observer active)');
