@@ -5,7 +5,14 @@ that fits a chosen size cap (e.g. ≤ 10 MB for Discord) — without the ssstwit
 
 Idea + full spec: [`knowledge/ideas/twitter-video-downloader.md`](../../ideas/twitter-video-downloader.md).
 
-Status: **spec complete + pipeline spike validated on real Twitter/X.** The extension is not built yet.
+Status: **working — verified in Chrome (2026-06-24).** End-to-end download confirmed on a live tweet.
+
+- [`extension/`](extension/) — the Manifest V3 extension (working). See its README for architecture,
+  the verified checklist, and the "Gotchas" learned during in-Chrome debugging.
+- [`spike/`](spike/) — the no-UI pipeline spike that de-risked everything below (validated on a live tweet).
+
+**For AI sessions:** [`CLAUDE.md`](CLAUDE.md) (operating contract) · [`CONTEXT.md`](CONTEXT.md)
+(architecture + findings) · [`BACKLOG.md`](BACKLOG.md) (planned work).
 
 ---
 
