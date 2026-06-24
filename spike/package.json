@@ -1,0 +1,16 @@
+{
+  "name": "twitter-video-downloader-spike",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "No-UI spike: prove HLS parse -> size-capped variant pick -> fetch separate A/V fMP4 -> remux to one playable MP4. URL-agnostic (Apple test stream now; real Twitter master later).",
+  "bin": {
+    "tvd-spike": "spike.mjs"
+  },
+  "scripts": {
+    "spike": "node spike.mjs"
+  },
+  "dependencies": {
+    "mp4box": "^0.5.4"
+  }
+}

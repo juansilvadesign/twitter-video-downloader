@@ -1,0 +1,6 @@
+.venv/
+out/
+node_modules/
+*.mp4
+*.m4s
+.tmp-*
