@@ -11,6 +11,8 @@ Mark an item done only when its acceptance is actually satisfied (runtime items 
   live tweet (1080×1440, 7.59 MB). (`extension/`)
 - **Branded icons** — generated at 16/24/32/48/128 from `assets/logo/logo.png`.
 - **Action-bar download glyph** — swapped to `assets/icons/download.svg` (recolored to `currentColor`).
+- **Context-aware button size** — larger glyph on the focused post (`GLYPH_MAIN` 23px / 38px button),
+  compact on replies + timeline (`GLYPH_COMPACT` 18px / 34px). Matches X's native icon sizing. Verified in Chrome.
 
 ## Next — verification (cheap, in-Chrome)
 
