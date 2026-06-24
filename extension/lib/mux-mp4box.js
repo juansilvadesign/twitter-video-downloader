@@ -5,14 +5,19 @@
 // mp4box is loaded as a CLASSIC script in offscreen.html (so it attaches to the global as MP4Box
 // and has access to `window`), BEFORE this module runs.
 
-const MP4Box = globalThis.MP4Box;
-if (!MP4Box) {
-  throw new Error('mp4box.all.js must load before mux-mp4box.js (see offscreen.html script order)');
+// Read mp4box lazily at call time (it's loaded as a classic <script> in offscreen.html). Doing
+// this lazily — instead of at module top level — means this module always evaluates, so the
+// offscreen listener registers even if mp4box somehow isn't ready, and the error is reported clearly.
+function getMP4Box() {
+  const M = globalThis.MP4Box;
+  if (!M) throw new Error('mp4box not loaded — offscreen.html must load vendor/mp4box.all.js before offscreen.js');
+  M.Log?.setLogLevel?.(M.Log.error);
+  return M;
 }
-MP4Box.Log?.setLogLevel?.(MP4Box.Log.error);
 
 /** Parse one single-track fMP4 (Uint8Array) -> { entry, timescale, width, height, samples[] }. */
 function loadTrack(bytes, label) {
+  const MP4Box = getMP4Box();
   return new Promise((resolve, reject) => {
     const file = MP4Box.createFile();
     const res = { entry: null, timescale: 1, width: 0, height: 0, samples: [] };
@@ -47,6 +52,7 @@ function loadTrack(bytes, label) {
 /** Re-serialize a parsed avcC into a raw AVCDecoderConfigurationRecord ArrayBuffer (no box header). */
 function avcConfigBytes(entry) {
   if (!entry.avcC) throw new Error('video sample entry has no avcC');
+  const MP4Box = getMP4Box();
   const ds = new MP4Box.DataStream(undefined, 0, MP4Box.DataStream.BIG_ENDIAN);
   entry.avcC.write(ds);
   return ds.buffer.slice(8);
@@ -54,6 +60,7 @@ function avcConfigBytes(entry) {
 
 /** Remux separate video + audio fMP4 (Uint8Array each) into one MP4 (Uint8Array). */
 export async function muxMp4box(videoBytes, audioBytes) {
+  const MP4Box = getMP4Box();
   const v = await loadTrack(videoBytes, 'video');
   const a = audioBytes ? await loadTrack(audioBytes, 'audio') : null;
 
