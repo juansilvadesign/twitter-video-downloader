@@ -1,0 +1,40 @@
+/* Download button injected into the tweet action bar. Cloned-feel styling matched to X's icon
+   buttons (circular hover halo, neutral grey -> brand blue) so it sits naturally next to Share. */
+
+.tvd-btn-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tvd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  margin-left: 2px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: rgb(113, 118, 123);
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease, opacity .15s ease;
+}
+
+.tvd-btn:hover {
+  color: rgb(29, 155, 240);
+  background: rgba(29, 155, 240, .1);
+}
+
+.tvd-btn.tvd-loading {
+  animation: tvd-pulse 1s ease-in-out infinite;
+  cursor: progress;
+}
+
+.tvd-btn.tvd-done { color: rgb(0, 186, 124) !important; }
+.tvd-btn.tvd-error { color: rgb(244, 33, 46) !important; }
+
+@keyframes tvd-pulse {
+  50% { opacity: .35; }
+}

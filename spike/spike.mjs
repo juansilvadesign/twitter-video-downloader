@@ -58,6 +58,10 @@ async function main() {
   const capMB = num('cap', 10);
   const maxSeconds = num('seconds', 30); // 0 = whole video
   const capBytes = capMB * MB;
+  // Label outputs by source host so Apple-test vs Twitter runs don't clobber each other.
+  const srcLabel = (() => {
+    try { return new URL(masterUrl).hostname.split('.').slice(-2, -1)[0] || 'src'; } catch { return 'src'; }
+  })();
 
   const here = fileURLToPath(new URL('.', import.meta.url));
   const outDir = join(here, 'out');
@@ -116,7 +120,7 @@ async function main() {
   // 5. remux with both backends, then verify each output
   const results = [];
   for (const [name, fn] of [['ffmpeg-copy', muxFfmpeg], ['mp4box.js', muxMp4box]]) {
-    const out = join(outDir, `out.${name.replace(/[^a-z0-9]/gi, '_')}.mp4`);
+    const out = join(outDir, `out.${srcLabel}.${name.replace(/[^a-z0-9]/gi, '_')}.mp4`);
     process.stdout.write(`\nRemux [${name}] ... `);
     try {
       await fn(videoBuf, audioBuf, out);

@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>Twitter Video Downloader</h1>
+
+  <label class="field">
+    <span>Max size</span>
+    <span class="cap"><input id="cap" type="number" min="1" max="500" step="1"> MB</span>
+  </label>
+  <p class="hint">Downloads the highest resolution that fits the cap (e.g. 10 MB for Discord).</p>
+
+  <label class="field col">
+    <span>Paste a tweet or <code>.m3u8</code> link</span>
+    <input id="link" type="text" placeholder="https://x.com/user/status/123…" autocomplete="off">
+  </label>
+
+  <button id="go">Download</button>
+  <p id="status" class="status"></p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

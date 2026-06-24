@@ -1,0 +1,70 @@
+:root { color-scheme: light dark; }
+
+body {
+  width: 300px;
+  margin: 0;
+  padding: 14px 16px 16px;
+  font: 13px/1.4 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  background: Canvas;
+  color: CanvasText;
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0 2px;
+}
+.field.col {
+  flex-direction: column;
+  align-items: stretch;
+}
+.field > span:first-child { font-weight: 600; }
+
+.cap { display: inline-flex; align-items: center; gap: 6px; }
+#cap { width: 64px; }
+
+input {
+  padding: 6px 8px;
+  border: 1px solid rgba(128, 128, 128, .4);
+  border-radius: 8px;
+  background: Field;
+  color: FieldText;
+  font: inherit;
+}
+.field.col input { margin-top: 6px; }
+
+.hint {
+  margin: 4px 0 8px;
+  font-size: 11px;
+  opacity: .65;
+}
+
+button {
+  width: 100%;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9999px;
+  background: rgb(29, 155, 240);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+button:disabled { opacity: .6; cursor: progress; }
+
+.status {
+  margin: 10px 0 0;
+  min-height: 1.2em;
+  font-size: 12px;
+}
+.status.ok { color: rgb(0, 150, 100); }
+.status.err { color: rgb(220, 40, 50); }
+.status.busy { opacity: .75; }
