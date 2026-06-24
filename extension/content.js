@@ -10,9 +10,23 @@
 
 console.log('[TVD] content script loaded on', location.href);
 
-const DL_SVG =
-  '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
-  '<path fill="currentColor" d="M12 15.5l-4.5-4.5 1.41-1.41L11 11.67V4h2v7.67l2.09-2.08L16.5 11zM5 18h14v2H5z"/></svg>';
+// Download glyph from assets/icons/download.svg. Fills are currentColor (not the asset's hardcoded
+// #6D6D6D) so the existing CSS hover (grey -> brand blue) still applies — only the shape changed.
+//
+// Two glyph sizes: the focused/main tweet on a /status/ page renders LARGER native action icons than
+// timeline tweets and replies, so the button matches each context. Tweak these two numbers to taste.
+const GLYPH_MAIN = 23;     // focused post — the tweet whose id is in the URL
+const GLYPH_COMPACT = 18;  // replies + timeline
+
+const DL_PATHS =
+  '<path fill="currentColor" d="M11.2419 15.1531L5.83239 9.86407L7.17053 8.54645L10.2929 11.6085V2.70996H12.1909V11.6085L15.3227 8.54645L16.6609 9.86407L11.2419 15.1531Z"/>' +
+  '<path fill="currentColor" d="M19.7926 14.2249L19.7736 17.4818C19.7736 18.7623 18.7107 19.7923 17.401 19.7923H5.08255C3.76339 19.7923 2.70996 18.753 2.70996 17.4725V14.2249H4.60803V17.4725C4.60803 17.7323 4.81682 17.9365 5.08255 17.9365H17.401C17.6668 17.9365 17.8756 17.7323 17.8756 17.4725L17.8945 14.2249H19.7926Z"/>';
+
+const dlSvg = (size) =>
+  `<svg viewBox="0 0 23 23" width="${size}" height="${size}" fill="none" aria-hidden="true">${DL_PATHS}</svg>`;
+
+// Status ID of the focused tweet on a /status/<id> detail page (the "main" post) — null elsewhere.
+const focusedStatusId = () => location.pathname.match(/\/status\/(\d+)/)?.[1] || null;
 
 function statusIdFromArticle(article) {
   for (const a of article.querySelectorAll('a[href*="/status/"]')) {
@@ -77,16 +91,17 @@ function inject(actionBar) {
   if (!article || !hasVideo(article)) return;
   const statusId = statusIdFromArticle(article);
   if (!statusId) return;
+  const isMain = statusId === focusedStatusId(); // the focused post vs a reply/timeline tweet
 
   const wrap = document.createElement('div');
   wrap.className = 'tvd-btn-wrap';
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'tvd-btn';
+  btn.className = isMain ? 'tvd-btn tvd-btn-main' : 'tvd-btn';
   btn.dataset.tvdStatus = statusId; // delegated handler reads the ID from here
   btn.title = 'Download video (size-capped)';
   btn.setAttribute('aria-label', 'Download video (size-capped)');
-  btn.innerHTML = DL_SVG;
+  btn.innerHTML = dlSvg(isMain ? GLYPH_MAIN : GLYPH_COMPACT);
   wrap.appendChild(btn);
   actionBar.appendChild(wrap);
 }

@@ -27,6 +27,13 @@
   background: rgba(29, 155, 240, .1);
 }
 
+/* Focused/main tweet: larger hit area to match its bigger native action icons (glyph size is set
+   inline in content.js via GLYPH_MAIN). Timeline/reply buttons keep the 34px above. */
+.tvd-btn.tvd-btn-main {
+  width: 38px;
+  height: 38px;
+}
+
 .tvd-btn.tvd-loading {
   animation: tvd-pulse 1s ease-in-out infinite;
   cursor: progress;

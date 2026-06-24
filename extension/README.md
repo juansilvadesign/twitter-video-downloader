@@ -4,11 +4,11 @@ Manifest V3 browser extension. Adds a download button to each video tweet's acti
 paste-link popup, and downloads the highest resolution that fits a chosen size cap (default 10 MB
 for Discord). Pure client-side — no server, no native host, no ffmpeg.wasm.
 
-> **Status: scaffold.** The full download pipeline (resolve → parse → size-cap pick → fetch
-> separate A/V → mp4box.js remux) is the code validated end-to-end on real Twitter by `../spike/`,
-> and the tweet→m3u8 resolver is verified too. What still needs a real Chrome to confirm is the
-> **runtime wiring** (button injection, offscreen lifecycle, mp4box in the offscreen doc, and the
-> blob→`chrome.downloads` hand-off). See "Verify in Chrome" below.
+> **Status: working — verified in Chrome (2026-06-24).** End-to-end download confirmed on a live
+> tweet: action-bar button → size-capped pick (1080×1440 under a 10 MB cap) → mp4box remux → MP4 in
+> Downloads (7.59 MB, byte-identical to the spike's validated output). The full runtime wiring
+> (button injection, offscreen lifecycle, mp4box in the offscreen doc, blob→`chrome.downloads`) is
+> proven. See "Gotchas" for the non-obvious things that had to be right.
 
 ## Architecture
 
@@ -44,18 +44,40 @@ The `lib/` modules are the spike's `src/` code, adapted only where Node ↔ brow
 3. Open a tweet with a video on `x.com` → a download arrow appears in the action bar (right of
    Share). Or click the toolbar icon and paste a tweet / `.m3u8` link. Set the size cap in the popup.
 
-## Verify in Chrome (the parts Node can't cover)
+## Verified in Chrome (2026-06-24)
 
-- [ ] **Button injection** — appears on timeline / detail / quoted-tweet videos; survives scroll
-      (virtual-scroll recycling) without duplicates. Selectors in `content.js` are heuristic and are
-      the most likely thing to need updating when X changes its markup.
-- [ ] **Offscreen + mp4box** — confirm `vendor/mp4box.all.js` loads in the offscreen doc and remuxes
-      (it uses `window.URL` internally; the offscreen page has it — the SW would not).
-- [ ] **Blob → download** — `chrome.downloads.download` saving an offscreen-created `blob:` URL.
-      If it balks, fall back to a `data:` URL or trigger the save from the offscreen doc.
-- [ ] **CORS in-context** — segment HEAD/GET from the offscreen doc against `video.twimg.com` and
-      non-`amplify_video` shards (`ext_tw_video`). host_permissions should make this a non-issue.
-- [ ] **Syndication resolver** — verified in Node today; confirm under the extension origin too.
+- [x] **Button injection** — appears once per video tweet; survives X's React re-renders (delegation).
+- [x] **Offscreen + mp4box** — `vendor/mp4box.all.js` loads and remuxes in the offscreen doc.
+- [x] **Blob → download** — `chrome.downloads.download` saved the offscreen-created `blob:` URL directly
+      (no `data:` fallback needed).
+- [x] **CORS in-context** — offscreen fetch/HEAD against `video.twimg.com` works via `host_permissions`.
+- [x] **Syndication resolver** — resolves the master m3u8 under the extension origin too.
+
+Selectors in `content.js` remain heuristic — the most likely thing to need updating when X changes
+its markup.
+
+## Gotchas (non-obvious things this had to get right)
+
+Hard-won during in-Chrome debugging; each caused a silent failure:
+
+1. **Message `...spread` clobbers `type`.** `sendMessage({ type: 'tvd-run', ...job })` where `job`
+   carries `type: 'tvd-download'` → the spread overwrites the type, the offscreen ignores it, and the
+   job silently never runs (symptom: timeout / "no response"). Forward explicit fields; never spread a
+   message object that has its own `type`.
+2. **Offscreen-listener readiness race.** `chrome.offscreen.createDocument()` resolves before a
+   deferred ES-module offscreen script registers its `onMessage` listener, so the first job is dropped.
+   Fix: a `tvd-ping` handshake — wait for the offscreen to answer before sending the job.
+3. **mp4box's globals differ by build.** As a classic browser script, mp4box puts only `createFile` on
+   the `MP4Box` object; `DataStream`, `Log`, `BoxParser` are **separate globals** (`globalThis.DataStream`).
+   Only the Node/CommonJS `require('mp4box')` bundles them under one object. Using `MP4Box.DataStream` in
+   the browser throws `undefined`.
+4. **Event delegation beats per-button listeners on X.** A listener bound to an injected button dies when
+   React re-renders the action bar. A single capture-phase `document` click listener survives re-renders
+   and fires before X's own handlers.
+5. **Robustness add-ons:** results come back via a decoupled `tvd-result` message (the async
+   `sendResponse` channel is fragile for long offscreen work), the offscreen relays its log trace to the
+   SW console (`tvd-log`), and every fetch has an `AbortSignal.timeout` so a stall self-reports instead of
+   hanging.
 
 ## Known limitations / next
 
@@ -76,5 +98,5 @@ popup.html/.js/.css  paste-link + size-cap setting (chrome.storage.sync)
 offscreen.html/.js   download workhorse (loads mp4box, runs the pipeline)
 lib/              the validated spike pipeline, browser-adapted
 vendor/mp4box.all.js  mp4box.js 0.5.4
-icons/            placeholder icons (replace before any real use)
+icons/            extension icons (16/24/32/48/128) generated from ../assets/logo/logo.png
 ```
